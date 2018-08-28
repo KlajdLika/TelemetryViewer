@@ -71,7 +71,7 @@ import javax.swing.table.AbstractTableModel;
  */
 public class BinaryPacket implements Packet {
 
-	private byte syncWord;
+	private byte[] syncWord = new byte[4];
 	public BinaryChecksumProcessor checksumProcessor;
 	public int checksumProcessorOffset;
 	private int packetSize; // total byte count: includes sync word, fields, and checksum field
@@ -82,11 +82,14 @@ public class BinaryPacket implements Packet {
 	 */
 	public BinaryPacket() {
 		
-		syncWord = (byte) 0xAA;
+		syncWord[0] = (byte)0xFF; 	
+		syncWord[1] = (byte)0xFA;
+		syncWord[2] = (byte)0xFA;
+		syncWord[3] = (byte)0xFF;
 		Controller.removeAllDatasets();
 		checksumProcessor = null;
 		checksumProcessorOffset = -1;
-		packetSize = 1; // the syncWord
+		packetSize = 26; // the syncWord
 		
 		thread = null;
 		
@@ -257,7 +260,7 @@ public class BinaryPacket implements Packet {
 		
 		Controller.removeAllDatasets();
 		checksumProcessor = null;
-		packetSize = 1; // the syncWord
+		packetSize = 26; // the syncWord
 		
 	}
 	
@@ -343,7 +346,7 @@ public class BinaryPacket implements Packet {
 		// the first row is always the sync word
 		if(row == 0) {
 			if(column == 0)      return "0, [Sync Word]";
-			else if(column == 1) return String.format("0x%02X", syncWord);
+			else if(column == 1) return String.format("0x%02X, 0x%02X, 0x%02X, 0x%02X", syncWord[0],syncWord[1],syncWord[2],syncWord[3]);
 			else                 return "";
 		}
 		
@@ -413,7 +416,7 @@ public class BinaryPacket implements Packet {
 	 */
 	static public BinaryFieldProcessor[] getBinaryFieldProcessors() {
 		
-		BinaryFieldProcessor[] processors = new BinaryFieldProcessor[4];
+		BinaryFieldProcessor[] processors = new BinaryFieldProcessor[5];
 		
 		processors[0] = new BinaryFieldProcessor() {
 			
@@ -452,6 +455,15 @@ public class BinaryPacket implements Packet {
                                                                                             ((0xFF & bytes[2]) <<  8) |
                                                                                             ((0xFF & bytes[1]) << 16) |
                                                                                             ((0xFF & bytes[0]) << 24));}
+			
+		};
+		
+		processors[4] = new BinaryFieldProcessor() {
+			
+			@Override public String toString()                   { return "int16 LSB First"; }
+			@Override public int getByteCount()                  { return 2; }
+			@Override public float extractValue(byte[] bytes) { return (float)( (short)((0xFF & bytes[0]) << 8) |
+					                                                           		 ((0xFF & bytes[1])) );}
 			
 		};
 		
@@ -529,13 +541,23 @@ public class BinaryPacket implements Packet {
 						Thread.sleep(1);
 					
 					// wait for the sync word
-					bStream.read(rx_buffer, 0, 1);
-					while(rx_buffer[0] != syncWord)
+					int syncFlag = 0;
+					bStream.read(rx_buffer, 0, 4);
+					while((rx_buffer[0] != syncWord[0])&&(syncFlag==0)) {
 						bStream.read(rx_buffer, 0, 1);
-					
+						if((rx_buffer[1]==syncWord[1])&&(rx_buffer[2]==syncWord[2])&&(rx_buffer[3]==syncWord[3])) {
+							syncFlag = 1;
+							//System.out.printf("0x%1$x, 0x%2$x, 0x%3$x, 0x%4$x \r\n",rx_buffer[0], rx_buffer[1], rx_buffer[2], rx_buffer[3]);
+						}
+					}
 					// get rest of packet after the sync word
-					bStream.read(rx_buffer, 0, packetSize - 1); // -1 for syncWord
-					
+					bStream.read(rx_buffer, 4, packetSize - 4); // -1 for syncWord
+//					System.out.printf("0x%1$x, 0x%2$x, 0x%3$x, 0x%4$x, ",rx_buffer[0], rx_buffer[1], rx_buffer[2], rx_buffer[3]);
+//					System.out.printf("0x%1$x, 0x%2$x, 0x%3$x, 0x%4$x, ",rx_buffer[4], rx_buffer[5], rx_buffer[6], rx_buffer[7]);
+//					System.out.printf("0x%1$x, 0x%2$x, 0x%3$x, 0x%4$x ",rx_buffer[8], rx_buffer[9], rx_buffer[10], rx_buffer[11]);
+//					System.out.printf("0x%1$x, 0x%2$x, 0x%3$x, 0x%4$x ",rx_buffer[12], rx_buffer[13], rx_buffer[14], rx_buffer[15]);
+//					System.out.printf("0x%1$x, 0x%2$x, 0x%3$x, 0x%4$x \r\n",rx_buffer[16], rx_buffer[17], rx_buffer[18], rx_buffer[19]);
+				
 					// test checksum if enabled
 					boolean checksumPassed = true;
 					if(checksumProcessor != null)
@@ -544,7 +566,7 @@ public class BinaryPacket implements Packet {
 						NotificationsController.showVerboseForSeconds("Checksum failed.", 1, false);
 						continue;
 					}
-					
+					int klai=0;
 					// extract raw numbers and insert them into the datasets
 					for(Dataset dataset : Controller.getAllDatasets()) {
 						BinaryFieldProcessor processor = dataset.processor;
@@ -556,8 +578,14 @@ public class BinaryPacket implements Packet {
 							buffer[i] = rx_buffer[byteOffset + i - 1]; // -1 for syncWord
 						
 						float rawNumber = processor.extractValue(buffer);
+						if(klai<3)
+							rawNumber = rawNumber/10; //Conversion to N
+						else
+							rawNumber = rawNumber/1000; // Conversion to Nm
 						dataset.add(rawNumber);
+						klai++;
 					}
+					
 				
 				} catch(IOException | InterruptedException e) {
 					

@@ -310,7 +310,7 @@ public class Controller {
 		try {
 			
 			PrintWriter outputFile = new PrintWriter(new File(outputFilePath), "UTF-8");
-			outputFile.println("Telemetry Viewer File Format v0.5");
+			outputFile.println("BOTA FT-Viewer File Format v0.0");
 			outputFile.println("");
 			
 			outputFile.println("GUI Settings:");
